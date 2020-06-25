@@ -6,7 +6,7 @@ Attribute VB_Name = "RedmineApi"
 Attribute VB_GlobalNameSpace = False
 Attribute VB_Creatable = False
 Attribute VB_PredeclaredId = False
-Attribute VB_Exposed = False
+Attribute VB_Exposed = True
 Option Explicit
 
 'Redmineエンドポイント
@@ -198,6 +198,71 @@ Public Function GetProjects( _
   End If
 End Function
 
+Public Function GetIssues( _
+                  Optional ByVal projectId As String = "", _
+                  Optional ByVal trackerId As Integer = 7, _
+                  Optional ByVal issueId As String = "", _
+                  Optional ByVal limit As Integer = 100, _
+                  Optional ByVal offset As Integer = 0) As Collection
+                  
+  Dim reqPath, incStr As String
+  Dim params As Object
+  
+  
+  If projectId <> "" Then
+    reqPath = "projects"
+    reqPath = reqPath & "/" & projectId
+  End If
+  
+  reqPath = reqPath & "/" & "issues"
+  If issueId <> "" Then
+    reqPath = reqPath & "/" & issueId
+  End If
+  
+  If limit Then incStr = incStr & ",trackers"
+  'If incCategories Then incStr = incStr & ",issue_categories"
+  'If incModules Then incStr = incStr & ",enabled_modules"
+  'If incActivities Then incStr = incStr & ",time_entry_activities"
+  
+  'If incStr <> "" Then
+  '  Set params = Nothing
+  'Else
+  '  Set params = CreateObject("Scripting.Dictionary")
+  '  params.Add "include", Mid(incStr, 2)
+  'End If
+  
+  Set params = CreateObject("Scripting.Dictionary")
+  params.Add "limit", limit
+  params.Add "offset", offset
+  params.Add "tracker_id", trackerId
+  
+  If SendApiRequest("GET", reqPath, requestParam:=params) Then
+    Dim ret As Collection
+    Dim r As RedmineIssue
+    Set ret = New Collection
+    
+    If json.Exists("issue") Then
+      'Single result
+      Set r = Nothing
+      Set r = New RedmineIssue
+      r.load json("issues")
+      ret.Add r
+    Else
+      'Multiple result
+      Dim u As Object
+      For Each u In json("issues")
+        Set r = Nothing
+        Set r = New RedmineIssue
+        r.load u
+        ret.Add r
+      Next
+    End If
+    Set GetIssues = ret
+  Else
+    Set GetIssues = Nothing
+  End If
+End Function
+
 'RedmineへAPIリクエスト送信
 ' @param method: メソッド(GET,POST,PUT,DELETE)
 ' @param requestPath: リクエスト先のリソース
@@ -229,7 +294,8 @@ Public Function SendApiRequest( _
     If LBound(requestParam.Keys) >= 0 Then
       postUri = postUri & "?"
       For Each key In requestParam
-        postUri = postUri & key & "=" & UrlEncodeUtf8(requestParam.Item(key)) & "&"
+        'postUri = postUri & key & "=" & UrlEncodeUtf8(requestParam.Item(key)) & "&"
+        postUri = postUri & key & "=" & URLEncode(requestParam.Item(key)) & "&"
       Next
     End If
   End If
@@ -257,9 +323,50 @@ End Function
 'URLエンコード文字列を返す
 Private Function UrlEncodeUtf8(ByVal str As String) As String
   Dim script As Object
-  Set script = CreateObject("ScriptControl")
+  Set script = CreateObject("MSScriptControl.ScriptControl")
   script.Language = "Jscript"
   UrlEncodeUtf8 = script.CodeObject.encodeURIComponent(str)
+End Function
+
+Public Function URLEncode( _
+   ByVal StringVal As String, _
+   Optional SpaceAsPlus As Boolean = False _
+) As String
+  Dim bytes() As Byte, b As Byte, i As Integer, space As String
+
+  If SpaceAsPlus Then space = "+" Else space = "%20"
+
+  If Len(StringVal) > 0 Then
+    With New ADODB.Stream
+      .Mode = adModeReadWrite
+      .Type = adTypeText
+      .Charset = "UTF-8"
+      .Open
+      .WriteText StringVal
+      .Position = 0
+      .Type = adTypeBinary
+      .Position = 3 ' skip BOM
+      bytes = .Read
+    End With
+
+    ReDim result(UBound(bytes)) As String
+
+    For i = UBound(bytes) To 0 Step -1
+      b = bytes(i)
+      Select Case b
+        Case 97 To 122, 65 To 90, 48 To 57, 45, 46, 95, 126
+          result(i) = Chr(b)
+        Case 32
+          result(i) = space
+        Case 0 To 15
+          result(i) = "%0" & Hex(b)
+        Case Else
+          result(i) = "%" & Hex(b)
+      End Select
+    Next i
+
+    URLEncode = Join(result, "")
+  End If
 End Function
 
 'テキストの文字コード変換
